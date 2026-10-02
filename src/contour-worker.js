@@ -10,6 +10,7 @@ const CONTOUR_MIN_CROSSINGS = 3
    `smoothPath` reads. A missing name is a ReferenceError inside the worker. */
 const CONTOUR_MAX_CELLS = 60000, CONTOUR_MIN_BUMPSAMPLES = 4
 const CONTOUR_SMOOTH_FULL = 8000, CONTOUR_SMOOTH_LIMIT = 20000
+const CONTOUR_MIN_INK = 80
 let contourSeed = 1, contourField = null, contourGeom = null, contourPaths = []
 let contourLineCv = null, canvas = null, painter = null, stroke = 'rgba(0,0,0,0)', rasterizer = null
 const contourStroke = () => stroke

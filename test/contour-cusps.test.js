@@ -57,7 +57,7 @@ function grabNum(name) {
 const fns = ['contourRng', 'contourStepFor', 'contourBuild', 'contourBuildCandidate', 'contourCoverageScore',
   'contourEvaluate', 'contourExtractLevel', 'contourExtract'].map(grab).join('\n')
 const nums = ['CONTOUR_STEP', 'CONTOUR_LEVELS', 'CONTOUR_SPAN',
-  'CONTOUR_MIN_LEN', 'CONTOUR_MIN_RING_BOX', 'CONTOUR_MIN_CROSSINGS',
+  'CONTOUR_MIN_LEN', 'CONTOUR_MIN_RING_BOX', 'CONTOUR_MIN_CROSSINGS', 'CONTOUR_MIN_INK',
   'CONTOUR_MAX_CELLS', 'CONTOUR_MIN_BUMPSAMPLES',
   'CONTOUR_SMOOTH_FULL', 'CONTOUR_SMOOTH_LIMIT'].map(grabNum).join('\n')
 
