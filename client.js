@@ -3721,6 +3721,37 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         light: '#e8e8e2',
         dark: '#101110',
       },
+      /* Turn-status label ("Deep diving…") on DSH 0.2, where it stopped being
+         gradient text. The label moved from
+         @deepseek-ai/dsh-client-ui-conversation (gradient text: background-image
+         plus background-clip:text, recoloured by the two rules further down) to
+         @deepseek-ai/dsh-client-ui-chat, whose whole rule is
+
+             .<hash>_running {
+               --dsw-alias-label-shimmer: var(--dsw-alias-label-deep-diving-shimmer);
+               color: var(--dsw-alias-label-deep-diving);
+             }
+
+         over a masked-sweep overlay. There is no gradient left to repaint, so the
+         label is retinted through the two tokens it actually reads — the same
+         seam this layer already uses for every other colour:
+             -deep-diving          rests the glyphs
+             -deep-diving-shimmer  is what the mask reveals as the sweep
+         Both are declared by @deepseek-ai/dsh-client-ui-theme on <body> and
+         consumed ONLY by that one chat rule (verified against the shipped 0.2
+         bundles), so retinting them here cannot bleed into another surface.
+         Values reuse the measured --edge-status-* stops, so the contrast work
+         documented on the turn-status rules below still applies unchanged: light
+         dips to #6b5d00 / #3f3600, dark lifts to #fff500 / #a08a00, and the
+         武陵青 palette swaps both pairs by redefining --edge-status-* on body. */
+      '--dsw-alias-label-deep-diving': {
+        light: 'var(--edge-status-light)',
+        dark: 'var(--edge-status-dark)',
+      },
+      '--dsw-alias-label-deep-diving-shimmer': {
+        light: 'var(--edge-status-light-mid)',
+        dark: 'var(--edge-status-dark-mid)',
+      },
     })
 
     disposeStyles = insertCss(`
@@ -4051,15 +4082,26 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
       [class*='_frame']:has(> [data-endfield-contour]) {
         background: transparent !important;
       }
-      /* WHY _centerCol / _detailsCol and not a bare [class$='_root']: the current
-         build renders 27 '*_root' classes and SIX of them carry an opaque
-         background (trajectory bar, sidebar root, right-panel root, …). Only the
-         conversation column (inside the centre column) and the details panel
-         (inside the details column) may be cleared, so the columns scope the
-         match; both column suffixes are unique to the layout frame and were
-         verified alive on 0.1.2-rc.1. */
+      /* WHY _centerCol / _rightbarCol and not a bare [class$='_root']: the current
+         build renders hundreds of '*_root' classes and many of them carry an
+         opaque background (trajectory bar, sidebar root, right-panel content, …).
+         Only the conversation column (inside the centre column) and the right
+         column may be cleared, so the columns scope the match. Both column
+         suffixes are unique to the layout frame
+         (@deepseek-ai/dsh-client-ui-layout/AppFrame.module.css).
+
+         0.1.x -> 0.2 MIGRATION. The right column used to be _detailsCol with the
+         opaque surface on an inner '*_root'; on 0.2 it is _rightbarCol and the
+         background sits ON THE COLUMN ITSELF, while the inner panel
+         (OUqwTW_panel in @deepseek-ai/dsh-client-ui-sidebar-right) has no
+         background at all. So the old
+             [class$='_detailsCol'] [class$='_root']
+         selector matched nothing twice over: the column suffix is gone AND the
+         element that needs clearing is now the column, not a descendant. Left
+         as-is, the right panel painted an opaque bg-base straight over the
+         contour sheet whenever it was open. */
       [class*='_frame']:has(> [data-endfield-contour]) [class$='_centerCol'] [class$='_root'],
-      [class*='_frame']:has(> [data-endfield-contour]) [class$='_detailsCol'] [class$='_root'] {
+      [class*='_frame']:has(> [data-endfield-contour]) [class$='_rightbarCol'] {
         background: transparent !important;
       }
       /* The sidebar reads --dsw-specific-sidebar-fill, which this theme sets to the
@@ -4656,8 +4698,10 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
          depth it had, in the theme's own accent.
          Matched on the '_heroGlow' CSS-module suffix, never on a build hash.
          NOTE: 0.1.2-rc.1 removed the glow SVG entirely (the hero was merged into
-         ConversationRoot with no <HeroGlow>), so these rules match nothing there;
-         they are kept as a self-healing hook in case upstream restores it. */
+         ConversationRoot with no <HeroGlow>), and the module is still absent in
+         0.2 (verified against the shipped 0.2.0-rc.2 bundles), so these rules
+         match nothing today; they are kept as a self-healing hook in case
+         upstream restores it. */
       [class*='_heroGlow'] ellipse {
         fill: var(--edge-signal, var(--edge-accent)) !important;
         fill-opacity: var(--edge-glow-light) !important;
@@ -4893,11 +4937,12 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
         background: rgba(16, 17, 16, 0.16) !important;
       }
       /* ---------- Turn-status label ("Deep diving...") ----------
-         Owner: @deepseek-ai/dsh-client-ui-conversation, class Md3f7G_turnStatus.
+         MOVED AND RE-MECHANISED ON DSH 0.2, so the recolour moved with it.
 
-         This label is GRADIENT TEXT, not coloured text. Upstream paints a
-         linear-gradient background, sets -webkit-text-fill-color: transparent plus
-         background-clip: text, and animates background-position to shimmer:
+         On 0.1.x the label was owned by @deepseek-ai/dsh-client-ui-conversation as
+         'Md3f7G_turnStatus' and painted as GRADIENT TEXT — a linear-gradient
+         background, -webkit-text-fill-color: transparent plus background-clip:
+         text, shimmered by animating background-position:
 
            background: linear-gradient(90deg,
              var(--dsw-static-deepseek-500) 0%   40%,
@@ -4905,42 +4950,50 @@ function apply(ctx) {    // Idempotency: the installed bundle can be applied mor
              var(--dsw-static-deepseek-500) 60% 100%);
            color: #0000; -webkit-text-fill-color: transparent;
 
-         Two consequences drive the rules below:
-           1. A plain 'color:' CANNOT recolour this label — the transparent text
-              fill wins, so the glyphs would stay whatever the gradient paints. The
-              recolour therefore has to go through the gradient itself.
-           2. Retinting the shared --dsw-static-deepseek-* tokens is the wrong lever:
-              --dsw-static-deepseek-500/200 also back --dsw-alias-button-info-fill,
-              --dsw-alias-state-business-primary and --dsw-specific-bubble-highlight
-              (verified in dsh-client-ui-theme/styles/design-platform.css), so the
-              theme already maps them to ink/paper on purpose. Only
-              background-image is overridden here, which leaves upstream's
-              background-size, background-position and shimmer animation untouched.
+         Two consequences drove the 0.1.x rules that used to live here:
+           1. A plain 'color:' CANNOT recolour that label — the transparent text
+              fill wins, so the recolour had to go through the gradient itself.
+           2. Retinting the shared --dsw-static-deepseek-* tokens would be the wrong
+              lever: --dsw-static-deepseek-500/200 also back
+              --dsw-alias-button-info-fill, --dsw-alias-state-business-primary and
+              --dsw-specific-bubble-highlight (verified in
+              dsh-client-ui-theme/styles/design-platform.css), so the theme maps
+              them to ink/paper on purpose.
+         Hence only background-image was overridden, leaving upstream's
+         background-size, background-position and shimmer animation untouched.
 
-         COLOUR CHOICE IS MEASURED, NOT PICKED BY EYE. Every gradient stop must
-         clear WCAG AA 4.5:1 against BOTH backgrounds the label can sit on in its
-         mode (bg-base and bg-layer-1), because the mid-band sweeps through the
-         glyphs — and under prefers-reduced-motion upstream pins background-size to
-         100%, leaving that mid-band permanently inside the text. Measured:
+         ON 0.2 THERE IS NO GRADIENT AND NO 'turnStatus' CLASS. The same label now
+         lives in @deepseek-ai/dsh-client-ui-chat as '<hash>_running' and is
+         masked-sweep text whose only levers are the two
+         --dsw-alias-label-deep-diving* tokens. A rule matching '[class*=
+         "turnStatus"]' can never fire on 0.2, so the recolour is carried by the
+         theme.overrideTokens layer above instead (search for
+         '--dsw-alias-label-deep-diving'). Measured on a real 0.2.0-rc.2 page with
+         the old rules still present: the token kept resolving to the app's own
+         color-mix(in srgb, #101110 70%, #172554) and the label lost the theme
+         colour entirely. test/selector-guard.test.js pins both the 0.2 class hook
+         and the token pair so this cannot silently rot again.
+
+         COLOUR CHOICE IS MEASURED, NOT PICKED BY EYE — and it did not have to be
+         re-derived for 0.2, because both tokens paint glyphs against the SAME two
+         surfaces (bg-base and bg-layer-1), and under prefers-reduced-motion the
+         sweep is effectively held inside the text. Every stop therefore still has
+         to clear WCAG AA 4.5:1 against both. Measured:
            light bg #e8e8e2 / #f2f2ec —  #fff500 scores 1.02:1 (invisible; the naive
              "just make it yellow" reading of this request), #8f7c00 3.38, #7d6c00
-             4.25, and #6b5d00 5.35 is the FIRST gold that clears AA;
-           dark  bg #101110 / #181a18 —  #fff500 15.26, #a08a00 5.11, while #8f7c00
-             falls to 4.21 and fails.
+             4.25, and #6b5d00 5.35 is the FIRST gold that clears AA (mid #3f3600
+             9.82);
+           dark  bg #101110 / #181a18 —  #fff500 15.26 (mid #a08a00 5.11), while
+             #8f7c00 falls to 4.21 and fails.
          Hence the sweep DIPS deeper in both modes instead of lifting brighter:
          in light mode no gold above #6b5d00 can clear AA, and in dark mode a pale
          lift band desaturates to near-white and loses the yellow entirely.
          Light mode is a deep gold rather than signal yellow for the same reason the
          watermark and rail are not: on cream, #fff500 is not a colour choice, it is
-         an erasure. */
-      body [class*='turnStatus']:not([class*='turnStatusClock']) {
-        background-image: linear-gradient(90deg,
-          var(--edge-status-light) 0%, var(--edge-status-light) 40%, var(--edge-status-light-mid) 50%, var(--edge-status-light) 60%, var(--edge-status-light) 100%) !important;
-      }
-      body[data-ds-dark-theme] [class*='turnStatus']:not([class*='turnStatusClock']) {
-        background-image: linear-gradient(90deg,
-          var(--edge-status-dark) 0%, var(--edge-status-dark) 40%, var(--edge-status-dark-mid) 50%, var(--edge-status-dark) 60%, var(--edge-status-dark) 100%) !important;
-      }
+         an erasure. The 武陵青 palette swaps both stops to its own teal pair
+         (#006a6a / #003f3f light, #14d0d0 / #7ee7e7 dark) by redefining
+         --edge-status-* in its body class, so the palette flip re-resolves the
+         tokens with no JS repaint — the same var() trick as --dsw-alias-brand-primary. */
       /* ================= boot loading screen ================= */
       /* Fixed plate above everything, including the shell overlay layer. It exists
          only while the boot animation plays and is removed afterwards, so none of

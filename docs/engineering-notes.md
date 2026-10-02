@@ -49,7 +49,7 @@
 
 关键差异，逐条都有对应的防护：
 
-- **只有 `.volatile()` 字段可编辑。** `ctx.settings` 只把 volatile 路径投影成表单，写非 volatile 路径会直接报 `Config field "x" is not volatile`；整份 schema 一个 volatile 字段都没有时该条目**根本不出现**在设置里。所以 `index.js` 的 `Config` 16 个字段全部 `.volatile()`，`test/settings-config-forms.test.js` 会逐字段断言这一点（漏一个就是「设置保存不了」的现代写法）。
+- **只有 `.volatile()` 字段可编辑。** `ctx.settings` 只把 volatile 路径投影成表单，写非 volatile 路径会直接报 `Config field "x" is not volatile`；整份 schema 一个 volatile 字段都没有时该条目**根本不出现**在设置里。所以 `index.js` 的 `Config` **27 个字段全部 `.volatile()`**，`test/settings-config-forms.test.js` 会逐字段断言这一点（漏一个就是「设置保存不了」的现代写法）。
 - **两个 schemastery 必须区分。** DSH 同时装了带 `.volatile()` 的 `@deepseek-ai/schemastery`（3.18.4）和不带它的旧 `schemastery`（3.18.0）。`index.js` 的 `loadSchemastery(true)` 会逐个候选检查 `.volatile` 是否真的存在，找不到就返回 `undefined`（本插件退化成无需配置，而不是挂一个假表单）。
 - **命名空间是 entry id，不是包名。** `theme-endfield` 这个串同时出现在 `cordis.patch.yml` 的 `id:`、`index.js` 的 `SETTINGS_ENTRY` 和 client 的 `PREFS_ENTRY`；三者由新测试交叉校验。client 另外会依次尝试 `include:` 前缀等几种安装别名，优先选真正被 Host served（`status:'ready'`）的那个拼写；一个都没 served 时先绑定首选拼写（表单只是共享镜像的懒视图，早绑定才能等到迟到的 section）。此后每次镜像重载都会让每个表单重新派生，`unavailable`→`ready` 的转变会把「另一个拼写被 served」通知过来，此时自动切过去；万一镜像只更新却不通知（表单快照存储丢弃等价快照），还有**有界 settle watch**（20 × 500ms）自己轮询兜底。两种情况下切换期间 held 的编辑都会补写到新拼写上。
 - **`settings.yaml` 已废弃。** DSH 启动时把已有的 `settings.yaml` 改名为 `settings.yaml.imported`，并只迁移 `LEGACY_SECTION_ENTRIES` 里那几段。旧的主题段落名 `dsh-theme-endfield` 不等于 entry id `theme-endfield`，因此**不在迁移之列**，需要用户在设置页重设一次；这是 DSH 侧的行为，不是本插件丢的。旧值仍留在 `settings.yaml.imported` 里可手工对照。
@@ -59,7 +59,7 @@
 
 1. **声明**（Host `index.js`）：0.1.7-rc.1 导出 `Config`（`z.object({ 每个字段: z.string().default(...).volatile() })`）；同时用 `ctx.inject(['settings'], sctx => sctx.effect(() => sctx.settings.configure({ auto: false }, ctx.fiber)))` 关掉自动生成的设置页（本插件自带四组页面）。旧宿主则在 `settings.register` 存在时执行 `register('dsh-theme-endfield', schema, { applies:'live' })`。schema 每个字段都是**字符串**字段并带 `.default(...)`：default-ON 存 `'1'`（读作 `!== '0'`），default-OFF 存 `'0'`（读作 `=== '1'`）；palette/radius/fps/speed 各存一个文档里写明的字面量。字符串化让三代存盘点位的值模型完全一致，client 的键表、面板与测试都不必随 transport 改动。
 2. **写**（浏览器 `client.js`）：设置面板每个 toggle 调用内部 `prefsSet(field, value)` → 只有当快照是 **durably served**（`mode:'host' && status:'ready' && writable`）时才调用 transport 的 `set(field, value)`，Host 收到后原子写盘。只凭 `writable` 判写是一个坑：host 模式的快照即便本命名空间**尚未被 served** 也会返回 `writable:true` 与 `status:'unavailable'`（`commit radius = round … status= unavailable` 就是这么打出来的）——旧代码照写不误、清了脏标记但什么都没落盘，刷新即丢。现在这种写被**拦下并标脏**（页面内仍生效），等快照在后续 ready 回相（Host 文档提交、镜像重载）时由 subscription 自动补写；`configForms.set()` 明确返回 `false`（Host 拒绝/跳过）时同样重新标脏等待下次回相，而不是假装写成功。
-3. **读 / 生效**：transport 的 `getSnapshot().value` 就是已由 schema 校验并合并默认值的整段（client 再经 `prefsResolveSection()` 归一化到 16 个声明字段）；主题层的 `isEnabled()` 与其它 getter 每次调用都 `prefsGet(field)` 现读本段，天然随值变化。
+3. **读 / 生效**：transport 的 `getSnapshot().value` 就是已由 schema 校验并合并默认值的整段（client 再经 `prefsResolveSection()` 归一化到 27 个声明字段）；主题层的 `isEnabled()` 与其它 getter 每次调用都 `prefsGet(field)` 现读本段，天然随值变化。
 4. **订阅同步**：`form.subscribe(...)` / `scope.subscribe(...)` 在每次落盘/镜像变化时唤醒，client 再跑一遍 `reconcileFromPrefs()`，把主题开关（enabled → mount/unmount token+样式表）、圆角/配色 class、水印、等高线、雷霆大字重新对齐。这样同 profile 里**另一个窗口/设备**编辑落盘文件（或本轮写入被 Host 回相确认）都不需要刷新即可热生效。订阅返回的 disposer 现在会被保存并在 run 拆除时调用：`ConfigForm` 是 provider 拥有、跨插件共享的实例，漏掉它会把这一个监听器泄漏给同页面的下一次 run。
 5. **启动恢复**：`apply()` 早于 transport 就绪时，读 schema 默认值（内存镜像），一旦 `status:'ready'` 的第一个真值镜像到达就切换到持久值——即使 Desktop 在随机端口上启动，也能立刻恢复到上次的设置。
 
@@ -96,6 +96,20 @@ v1.1.4 之前的判据是「**必须**找到带 `.volatile()` 的 schemastery，
 
 - **判据写进自检报告**：新增 `schemaMode` 记录走了哪条路；`resolution` 每一行现在除 `resolved` / `error` 外还带 `loaded` / `loadError` / `volatile` / `marker`。「解析得到但加载失败」以前在报告里读起来像自相矛盾，现在是一行结论。
 - **不再有「默认跳过」的断言。** `settings-config-forms.test.js` 的 Host 侧断言在拿不到 schemastery 时**整段跳过**，而拿不到 schemastery 恰恰是它要守的那个场景——于是在唯一要紧的环境里它什么都没验。新的 `settings-config-fallback.test.js` 不依赖本机 schemastery：它把**显式 builder**（含「只有 `.extra()`」这一形状）交给 `buildSchemaWith()`，逐字段断言默认值与 `meta.volatile`，并断言选择顺序（native 优先、`.extra()` 兜底、两者皆无则不导出）。
+
+### DSH 0.2.0-rc.2 上失效的三处应用侧钩子（v1.1.6 已跟进）
+
+0.2 **没有再动 settings API**：`Config` + `ctx.configForms` 那套接缝与 0.1.7 完全一致（唯一新增的语义是 `set()` 用**布尔值**回答而不是 reject，client 的写账本两种都认），所以本插件的 Host/Client 两半都不需要改。0.2 换掉的是三个**应用侧**细节，而它们的共同点是**旧写法不报错、只静默失效**——所以三处都在真实 0.2.0-rc.2 页面上实测过（scratch profile + 真运行时 + CDP 探针）：
+
+| 钩子 | 0.1.x | 0.2 | 旧写法的后果（实测） |
+| --- | --- | --- | --- |
+| 回合状态标签 | `@deepseek-ai/dsh-client-ui-conversation` 的 `<hash>_turnStatus`，**渐变文字**（`background-image` + `background-clip:text`） | `@deepseek-ai/dsh-client-ui-chat` 的 `<hash>_running`，**遮罩扫光文字**，着色只认 `--dsw-alias-label-deep-diving` / `-shimmer` | 规则永不命中；该令牌仍是应用自带值 `color-mix(in srgb, #101110 70%, #172554)`，标签完全没有主题色 |
+| 右侧栏列 | `_detailsCol`，不透明底色在其内部 `*_root` 上 | `_rightbarCol`，不透明底色**在列元素本身** | 选择器与目标元素**同时**变了：右侧栏一打开就整块盖住等高线图层 |
+| `_heroGlow` | 0.1.2-rc.1 起已无该模块 | 0.2 仍无 | 规则保持 self-healing 空钩子，不改行为 |
+
+因此回合状态标签的换色**从 CSS 移到 `theme.overrideTokens` 层**：给 `--dsw-alias-label-deep-diving` / `-shimmer` 各写一对 light/dark 值，复用既有的 `--edge-status-*` 色标（对比度结论完全不变，见[§ 四类：回合状态标签](#四类回合状态标签)与 [design-language.md](design-language.md#为什么亮色模式的强调色要下沉)），并用 `var()` 引用让配色切换依旧零 JS 重绘。护栏同步跟上：`check.js` 的第 4 条改成检查这两个令牌的四个值、并**禁止** `[class*='turnStatus']` 复活（那会是一条永远匹配不到的「假修复」），`test/selector-guard.test.js` 同时钉住 `_rightbarCol` 与两个令牌名。
+
+插件卡片的展示文案在 0.2 由 `locale/<语言>.json` 的 `meta.title` / `meta.description` 提供（`dsh.client` 声明本身不变），本版补上 `locale/en.json` 与 `locale/zh.json`。`dsh.client.inject` 里那两个 0.2 已不存在的包名（`@deepseek-ai/dsh-client-runtime`、`@deepseek-ai/dsh-client-ui-slots`）换成了 0.2 真正的提供方（`dsh-client-ui-theme` / `-ui-renderer` / `-ui-settings` / `-locale` / `-api-session-controller`）。这里要分清两件事：`dsh.client.inject` 是**浏览器包预载列表**（只影响加载顺序，指向不存在的包会被静默跳过，所以旧列表在 0.2 上「没坏」但也不再表达任何意图），而 `theme` / `configForms` 这类**服务**依赖由 client bundle 自己的 `exports.inject` 声明——`theme` 从来不是包名，写在这里本来就是无效项。
 
 ### 存储字段名必须来自 schema，不能用「去掉前缀」推出来（issue #15）
 
@@ -215,7 +229,7 @@ body{font-family:var( --dsw-font-family, -apple-system, … )}
 
 ### 等高线：应用外框内部
 
-从应用自身 CSS 实测：**三个元素会用不透明的 `--dsw-alias-bg-base` 盖住任何 body 级图层**——应用外框、对话列、详情列。所以图层挂进外框内部，并在挂载期间把这几处底色置为透明（`:has()` 守卫使功能关闭时全部规则失效）。
+从应用自身 CSS 实测：**三个元素会用不透明的 `--dsw-alias-bg-base` 盖住任何 body 级图层**——应用外框、对话列、右侧栏列（0.1.x 叫详情列）。所以图层挂进外框内部，并在挂载期间把这几处底色置为透明（`:has()` 守卫使功能关闭时全部规则失效）。
 
 外框本身已是 `position: relative` 且**不产生层叠上下文**，因此 `inset:0; z-index:0` 的子元素正好落在「外框底色之上、所有定位子元素之下」。
 
@@ -455,7 +469,7 @@ background: var(--dsw-alias-interactive-bg-hover-solid);   /* :hover */
 
 1. **禁止把模块哈希写进选择器。** CSS Module 类名是 `<hash>_<语义后缀>`，每次上游重新构建哈希全变，钉哈希的选择器**静默失效**。`test/selector-guard.test.js` 会在哈希重新出现时报警。
 2. **复合状态用子串匹配，不用 `[class$=]`。** 属性后缀选择器要求**整个 class 属性**以该串结尾，而元素常常还带第二个类（实测 `[class$='_inspectButton']` 在 `class="gNWCoW_inspectButton HOVERPROBE"` 上直接漏掉）。`[class*='_语义名']` 对拼接免疫；`_unselected` 因下划线断词不会误中 `_selected`。
-3. **泛化后缀必须加作用域。** 轨迹与工作区也有 `*_arrow` 类但**没有 hover 填充**，裸匹配会给它们强行刷墨色（暗色下黑-on-黑）。附件箭头按输入区容器（`_composerSeat`/`_composerHero`）限定；同理清等高线背景必须用 `_centerCol`/`_detailsCol` 限定 `_root`——当前构建 27 个 `*_root` 里有 6 个带不透明底。
+3. **泛化后缀必须加作用域，而且 0.2 连「作用域本身」也会改名。** 轨迹与工作区也有 `*_arrow` 类但**没有 hover 填充**，裸匹配会给它们强行刷墨色（暗色下黑-on-黑）。附件箭头按输入区容器（`_composerSeat`/`_composerHero`）限定；同理清等高线背景必须用列后缀限定 `_root`——0.1.x 是 `_centerCol`/`_detailsCol`，0.2 右侧栏改成 `_rightbarCol` 且不透明底色搬到了列元素本身，所以限定词与目标元素要**同时**更新（见[§ DSH 0.2.0-rc.2 上失效的三处应用侧钩子](#dsh-020-rc2-上失效的三处应用侧钩子v116-已跟进)）。这类改名不会报错，只会让规则静默不命中。
 4. **子树位置不是语义，不要用 `>` 把中间层数写死。** 语义后缀能扛住重新哈希，却扛不住上游**插入一层包裹元素**：`A > B` 在 `A > C > B` 上直接失配，同样静默。这条 bug 在一次会话里被犯了**两次**（见七类）：先是把徽章当成 header 的直系子节点，改成 `_headerActions >` 之后又漏掉了**插槽自己那层没有 class 的包裹 div**。层级要么用后代组合器表达，要么更好——**改用元素自身的特征**把目标锁定（不依赖任何一层的位置）。新增或调整这类选择器时，必须对着**真实 DOM**（浏览器里量出来，或从上游渲染代码读出来）验一遍，而不是对着测试夹具。
 
 ### 二类：前景与背景被映射成同一个值
@@ -494,10 +508,12 @@ background: var(--dsw-alias-interactive-bg-hover-solid);   /* :hover */
 
 ### 四类：回合状态标签
 
-该标签（`Md3f7G_turnStatus`）是**渐变文字**而非普通着色文字：上游画了一层 `linear-gradient` 背景，再用 `-webkit-text-fill-color: transparent` + `background-clip: text` 把字「镂空」，并以 `background-position` 做流光动画。由此两个结论：
+该标签在 **0.1.x** 上是 `Md3f7G_turnStatus`，是**渐变文字**而非普通着色文字：上游画了一层 `linear-gradient` 背景，再用 `-webkit-text-fill-color: transparent` + `background-clip: text` 把字「镂空」，并以 `background-position` 做流光动画。由此两个结论：
 
 1. **写 `color:` 完全无效**——透明文字填充优先，字仍由渐变决定；改色必须改渐变本身。
-2. **不能去动 `--dsw-static-deepseek-500/200` 这两个共享令牌。** 它们同时支撑 `--dsw-alias-button-info-fill`、`--dsw-alias-state-business-primary` 与 `--dsw-specific-bubble-highlight`，本主题刻意把它们映射成墨 / 纸色。因此只覆盖 `background-image`，上游的 `background-size`、`background-position` 与流光动画保持不变。
+2. **不能去动 `--dsw-static-deepseek-500/200` 这两个共享令牌。** 它们同时支撑 `--dsw-alias-button-info-fill`、`--dsw-alias-state-business-primary` 与 `--dsw-specific-bubble-highlight`，本主题刻意把它们映射成墨 / 纸色。因此当时只覆盖 `background-image`，上游的 `background-size`、`background-position` 与流光动画保持不变。
+
+**0.2 换掉了整套机制**（v1.1.6 已跟进，实测见[§ DSH 0.2.0-rc.2 上失效的三处应用侧钩子](#dsh-020-rc2-上失效的三处应用侧钩子v116-已跟进)）：标签搬到 `@deepseek-ai/dsh-client-ui-chat` 并改叫 `<hash>_running`，是**遮罩扫光文字**——渐变、`background-clip` 都不存在了，上面两条结论随之失效：写 `background-image` 没有任何作用，改色只能落到 `--dsw-alias-label-deep-diving` 与 `-shimmer` 这两个令牌上。本主题因此把换色移进 `theme.overrideTokens` 层，值仍复用同一批 `--edge-status-*` 色标，两代共享同一份对比度结论。
 
 色标取法见 [design-language.md](design-language.md#为什么亮色模式的强调色要下沉)。
 
