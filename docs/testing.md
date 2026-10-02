@@ -199,6 +199,8 @@ node test/contour-cusps.test.js       # 逐帧尖点 / 锐角（issue #3）
 node test/contour-a11y.test.js        # prefers-reduced-motion 行为
 node test/contour-coverage.test.js    # 8×5 分区墨迹覆盖率
 node test/contour-perf.test.js        # 稳态帧成本（n=80）
+node test/contour-bounds.test.js      # 扫描边界与全扫的逐坐标等价
+node test/contour-worker.test.js      # worker 内核与主线程一致
 node test/shoot.js                    # 输出亮/暗 × 两配色共四张截图供肉眼复核
 ```
 
@@ -222,7 +224,9 @@ node test/shoot.js                    # 输出亮/暗 × 两配色共四张截�
 
 **`contour-perf.test.js`** 不走 `requestAnimationFrame`——headless 会挂起 / 合并 rAF，只能采到 n=1，而没有分布支撑的数字不算测量。它按函数名把算法源码从 `client.js` 里原样切出后在紧循环里计时，并丢弃前两次采样（冷启动含 JIT 预热）。
 
-实测稳态：p95 8.6ms / 41.7ms 预算，约 81% 余量。
+该脚本对 24 / 60 / 120 fps **逐个**比预算，并在第一个超标处失败——所以真正卡住它的门槛是 **8.3ms（120fps）**，不是 41.7ms：报数时别只看「41.7ms 预算」那一行。
+
+> **提取到的名字必须跟着 `client.js` 走。** 这些「原样切出」的脚本按名字抓函数与常量，切出来少一个就是页面里的 `ReferenceError`，而它只会表现为 `no result` / 一行 `CONTOUR_... is not defined`。新增或重命名内核里的函数与常量时（例如 `contourStepFor`、`CONTOUR_MAX_CELLS`、`CONTOUR_MIN_BUMPSAMPLES`、`CONTOUR_SMOOTH_*`），要同步 `contour-smoothness` / `contour-cusps` / `contour-bounds` / `contour-perf` 的名单、`scripts/build-contour-worker.js` 的 `names`，以及 `src/contour-worker.js` 顶部手工镜像的常量——worker 里少一个常量同样是运行时 `ReferenceError`。
 
 ---
 
